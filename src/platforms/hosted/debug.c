@@ -49,6 +49,14 @@ static void debug_print(const uint16_t level, const char *format, va_list args)
 	/* Note: we have no useful way to use the output of the above call, so we ignore it. */
 }
 
+void debug_flush(const uint16_t level)
+{
+	if (!(bmda_debug_flags & level))
+		return;
+	FILE *const where = bmda_debug_flags & BMD_DEBUG_USE_STDERR ? stderr : stdout;
+	fflush(where);
+}
+
 #define DEBUG_PRINT(level)              \
 	va_list args;                       \
 	va_start(args, format);             \

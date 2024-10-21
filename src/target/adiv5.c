@@ -273,6 +273,25 @@ static const struct {
 };
 
 #if ENABLE_DEBUG == 1
+static const char *adiv5_ti_ap_type_string(const uint8_t ap_type, const uint8_t ap_class)
+{
+	if (ap_class == 0) {
+		switch(ap_type) {
+			case 0:
+				return "SEC-AP";
+			case 1:
+				return "CFG-AP";
+			case 2:
+				return "PWR-AP";
+			case 3:
+				return "ET-AP";
+			default:
+				break;
+		}
+	}
+	return "Unknown";
+}
+
 static const char *adiv5_arm_ap_type_string(const uint8_t ap_type, const uint8_t ap_class)
 {
 	/*
@@ -724,10 +743,11 @@ static void adiv5_display_ap(const adiv5_access_port_s *const ap)
 	const uint16_t designer = adiv5_decode_designer(ADIV5_AP_IDR_DESIGNER(ap->idr));
 	/* If this is an ARM-designed AP, map the AP type. Otherwise display "Unknown" */
 	const char *const ap_type_name =
-		designer == JEP106_MANUFACTURER_ARM ? adiv5_arm_ap_type_string(ap_type, ap_class) : "Unknown";
+		designer == JEP106_MANUFACTURER_ARM ? adiv5_arm_ap_type_string(ap_type, ap_class) :
+		designer == JEP106_MANUFACTURER_TEXAS ? adiv5_ti_ap_type_string(ap_type, ap_class) : "Unknown";
 	/* Display the AP's type, variant and revision information */
-	DEBUG_INFO(" (%s var%" PRIx32 " rev%" PRIx32 ")\n", ap_type_name, ADIV5_AP_IDR_VARIANT(ap->idr),
-		ADIV5_AP_IDR_REVISION(ap->idr));
+	DEBUG_INFO(" (%s var%" PRIx32 " rev%" PRIx32 ") ap_type %d ap_class %d\n", ap_type_name, ADIV5_AP_IDR_VARIANT(ap->idr),
+		ADIV5_AP_IDR_REVISION(ap->idr), (int)ap_type, (int)ap_class);
 #else
 	(void)ap;
 #endif
@@ -1147,6 +1167,8 @@ void adiv5_dp_init(adiv5_debug_port_s *const dp)
 		nrf51_mdm_probe(ap);
 		efm32_aap_probe(ap);
 		lpc55_dmap_probe(ap);
+		bool mspm0_sec_ap_probe(adiv5_access_port_s *ap);
+		if (mspm0_sec_ap_probe(ap)) continue;
 
 		/* Try to prepare the AP if it seems to be a AHB (memory) AP */
 		if (!ap->apsel && ADIV5_AP_IDR_CLASS(ap->idr) == 8U && ADIV5_AP_IDR_TYPE(ap->idr) == ARM_AP_TYPE_AHB3) {
@@ -1154,8 +1176,10 @@ void adiv5_dp_init(adiv5_debug_port_s *const dp)
 				DEBUG_WARN("adiv5: Failed to prepare AP, results may be unpredictable\n");
 		}
 
-		/* The rest should only be added after checking ROM table */
-		adiv5_component_probe(ap, ap->base, 0, 0);
+		/* The rest should only be added after checking ROM table. Only MEM-AP can contain ROM table */
+		if (ADIV5_AP_IDR_CLASS(ap->idr) == 8U)
+			adiv5_component_probe(ap, ap->base, 0, 0);
+
 		/*
 		 * Having completed discovery on this AP, if we're not in connect-under-reset mode,
 		 * and now that we're done with this AP's ROM tables, look for the target and resume the core.

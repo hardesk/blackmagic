@@ -107,6 +107,8 @@ static bool mspm0_flash_erase(target_flash_s *flash, target_addr_t addr, size_t 
 static bool mspm0_flash_write(target_flash_s *flash, target_addr_t dest, const void *src, size_t length);
 static bool mspm0_mass_erase(target_s *target);
 
+static bool poll_mspm0(target_s *const target, const int argc, const char **const argv);
+
 #if MSPM0_CONFIG_FLASH_DUMP_SUPPORT
 static bool mspm0_dump_factory_config(target_s *const target, const int argc, const char **const argv);
 static bool mspm0_dump_bcr_config(target_s *const target, const int argc, const char **const argv);
@@ -292,7 +294,8 @@ static void mspm0_flash_unprotect_sector(target_flash_s *const target_flash, con
 		target_mem32_write32(target_flash->t, MSPM0_FLASHCTL_CMDWEPROTA, mask);
 	} else if (sector < 256U) {
 		/* Depending whether main flash is multibank or not, the first 4 bits of PROTB either
-		start at 32k or overlay over PROTA responsible range. */
+		 * start at 32k or overlay over PROTA responsible range.
+		 */
 		unsigned start_protb_sector = mspm0_flash->banks <= 1 ? 32U : 0U;
 		uint32_t mask = ~(1U << ((sector - start_protb_sector) >> 3U));
 		target_mem32_write32(target_flash->t, MSPM0_FLASHCTL_CMDWEPROTB, mask);
@@ -393,4 +396,160 @@ static bool mspm0_mass_erase(target_s *const target)
 	}
 
 	return success;
+}
+
+#define DEBUGSS_BASE			0x400C7000U
+#define DEBUGSS_TXD				(DEBUGSS_BASE + 0x1100U)
+#define DEBUGSS_TXCTL			(DEBUGSS_BASE + 0x1104U)
+#define DEBUGSS_RXD 			(DEBUGSS_BASE + 0x1108U)
+#define DEBUGSS_RXCTL 			(DEBUGSS_BASE + 0x110cU)
+#define DEBUGSS_SPECIAL_AUTH 	(DEBUGSS_BASE + 0x1200U)
+#define DEBUGSS_APP_AUTH 		(DEBUGSS_BASE + 0x1210U)
+
+#include "timing.h"
+
+// struct platform_timeout mspm0_poll_timeout = {0};
+// static bool poll_mspm0(target_s *const cur_target, const int argc, const char **const argv)
+// {
+// 	while(1) {
+// 		// TX data (debug probe to target device)
+// 		// RX data (target device to debug probe)
+// 		if (platform_timeout_is_expired(&mspm0_poll_timeout)) {
+// 			platform_timeout_set(&mspm0_poll_timeout, 1000);
+// 			debug_info("%s\n", cur_target ? "'" : "*");
+// 		}
+
+// 		if (target_mem32_read32(cur_target, DEBUGSS_RXCTL) & 1) {
+// 			uint32_t data = target_mem32_read32(cur_target, DEBUGSS_RXD);
+// 			debug_info("RXD: %c (%u)\n", (char)data, data);
+// 		}
+// 		sleep(1);
+// 	}
+// }
+
+#define TI_SECAP_IDR 0x002e0000U
+#define TI_SEC_AP_TXD			ADIV5_AP_REG(0x0u)
+#define TI_SEC_AP_TXCTL			ADIV5_AP_REG(0x4u)
+#define TI_SEC_AP_RXD			ADIV5_AP_REG(0x8u)
+#define TI_SEC_AP_RXCTL			ADIV5_AP_REG(0xcu)
+
+static bool poll_mspm0(target_s *const target, const int argc, const char **const argv);
+
+static command_s mspm0_sec_ap_cmds_list[] = {
+	{"poll", poll_mspm0, "Poll DEBUGSS channel"},
+	{NULL, NULL, NULL},
+};
+
+
+static void mspm0_sec_ap_free(void *priv);
+bool mspm0_sec_ap_probe(adiv5_access_port_s *ap)
+{
+	if (ap->idr != TI_SECAP_IDR)
+		return false;
+
+	target_s *target = target_new();
+	if (!target)
+		return false;
+
+	adiv5_ap_ref(ap);
+	target->priv = ap;
+	target->priv_free = mspm0_sec_ap_free;
+
+	target->driver = "MSPM0 Debug Mailbox";
+	target->regs_size = 0;
+	target->mass_erase = NULL;
+
+	debug_info("SEC-AP: idr %08x apsel %d class %d type %d\n", ap->idr, ap->apsel,
+		ADIV5_AP_IDR_CLASS(ap->idr), ADIV5_AP_IDR_TYPE(ap->idr) );
+
+	// for (unsigned i=0;i<0x10; i += 4) {
+	// 	uint32_t r = adiv5_ap_read(ap, 0x100 | i );
+	// 	debug_info("SEC-AP: read @0x%02x: %08x\n", i, r);
+	// }
+
+	target_add_commands(target, mspm0_sec_ap_cmds_list, "MSPM0 Mailbox");
+
+	return true;
+}
+
+static void mspm0_sec_ap_free(void *priv)
+{
+	adiv5_ap_unref(priv);
+}
+
+static struct platform_timeout mspm0_poll_timeout = {0};
+static char const s_progress[] = "-/|\\";
+static uint8_t s_progress_n = 0; 
+
+static void mspm0_listen_mailbox(adiv5_access_port_s *ap)
+{
+	platform_timeout_set(&mspm0_poll_timeout, 500);
+
+	bool progress_printed = false;
+	unsigned recvd = 0;
+	char buffer[256+1];
+	size_t recv_max = sizeof(buffer)-1-4;
+	unsigned state = 0; // 0 - wait, 1 - recv
+	uint32_t rxctl, rxd, len;
+	while(1) {
+		// TX data (debug probe to target device)
+		// RX data (target device to debug probe)
+		if (platform_timeout_is_expired(&mspm0_poll_timeout)) {
+			platform_timeout_set(&mspm0_poll_timeout, 500);
+			// debug_info("%s", ap ? "'" : "*");
+			debug_info("%s%c", progress_printed ? "\r" : "", s_progress[s_progress_n++ % (sizeof s_progress - 1)]);
+			debug_flush(BMD_DEBUG_INFO);
+			progress_printed = true;
+		}
+
+		do {
+			switch(state) {
+			default:
+			case 0: // waiting
+				rxctl = adiv5_ap_read(ap, TI_SEC_AP_RXCTL);
+				if (rxctl & 1) {
+					state = 1;
+					recvd = 0;
+					len = (rxctl & 0x7fu) >> 1;
+					platform_timeout_set(&mspm0_poll_timeout, 500);
+					goto read_data;
+				}
+				break;
+
+			case 1: // reading
+				rxctl = adiv5_ap_read(ap, TI_SEC_AP_RXCTL);
+				if (rxctl & 1) {
+read_data:
+					rxd = adiv5_ap_read(ap, TI_SEC_AP_RXD);
+					// debug_info("RXCTL: %08x RXD: %08x\n", rxctl, rxd);
+					unsigned recvd_now = MIN(4, len);
+					memcpy(buffer + recvd, &rxd, recvd_now);
+					len -= recvd_now;
+					recvd += recvd_now;
+
+					if (!len || recvd >= recv_max) {
+						buffer[recvd] = 0;
+						if (progress_printed) progress_printed = false, debug_info("%s", "  \r");
+						debug_info("%s", buffer);
+						debug_flush(BMD_DEBUG_INFO);
+						if (!len)
+							state = 0; // done with the message
+						recvd = 0;
+					}
+				}
+				break;
+			} // switch
+		} while(rxctl & 1);
+
+		usleep(10000u);
+	}
+}
+
+static bool poll_mspm0(target_s *const cur_target, const int argc, const char **const argv)
+{
+	(void)argc;
+	(void)argv;
+	adiv5_access_port_s* ap = (adiv5_access_port_s*)cur_target->priv;
+	mspm0_listen_mailbox(ap);
+	return true;
 }
