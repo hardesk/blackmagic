@@ -516,6 +516,8 @@ void adiv5_dp_init(adiv5_debug_port_s *const dp)
 		nrf51_mdm_probe(ap);
 		efm32_aap_probe(ap);
 		lpc55_dmap_probe(ap);
+		bool mspm0_sec_ap_probe(adiv5_access_port_s *ap);
+		if (mspm0_sec_ap_probe(ap)) continue;
 
 		/* Try to prepare the AP if it seems to be a AHB3 MEM-AP */
 		if (!ap->apsel && ADIV5_AP_IDR_CLASS(ap->idr) == 8U && ADIV5_AP_IDR_TYPE(ap->idr) == ARM_AP_TYPE_AHB3) {
@@ -523,8 +525,9 @@ void adiv5_dp_init(adiv5_debug_port_s *const dp)
 				DEBUG_WARN("adiv5: Failed to prepare AP, results may be unpredictable\n");
 		}
 
-		/* The rest should only be added after checking ROM table */
-		adi_ap_component_probe(ap, ap->base, 0, 0);
+		/* The rest should only be added after checking ROM table. Only MEM-AP can contain ROM table */
+		if (ADIV5_AP_IDR_CLASS(ap->idr) == 8U)
+			adiv5_component_probe(ap, ap->base, 0, 0);
 		/* Having completed discovery on this AP, try to resume any halted cores */
 		adi_ap_resume_cores(ap);
 

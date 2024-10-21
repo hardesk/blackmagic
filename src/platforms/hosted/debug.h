@@ -75,6 +75,7 @@ void debug_target(const char *format, ...) DEBUG_FORMAT_ATTR;
 void debug_protocol(const char *format, ...) DEBUG_FORMAT_ATTR;
 void debug_probe(const char *format, ...) DEBUG_FORMAT_ATTR;
 void debug_wire(const char *format, ...) DEBUG_FORMAT_ATTR;
+void debug_flush(const uint16_t level);
 
 #if defined(_WIN32) && !defined(__MINGW32__) && !defined(__CYGWIN__)
 #define STDIN_FILENO  0
