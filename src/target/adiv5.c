@@ -527,7 +527,7 @@ void adiv5_dp_init(adiv5_debug_port_s *const dp)
 
 		/* The rest should only be added after checking ROM table. Only MEM-AP can contain ROM table */
 		if (ADIV5_AP_IDR_CLASS(ap->idr) == 8U)
-			adiv5_component_probe(ap, ap->base, 0, 0);
+			adi_ap_component_probe(ap, ap->base, 0, 0);
 		/* Having completed discovery on this AP, try to resume any halted cores */
 		adi_ap_resume_cores(ap);
 
