@@ -95,7 +95,7 @@ static bool mspm0_flash_erase(target_flash_s *flash, target_addr_t addr, size_t 
 static bool mspm0_flash_write(target_flash_s *flash, target_addr_t dest, const void *src, size_t length);
 static bool mspm0_mass_erase(target_s *target, platform_timeout_s *print_progess);
 
-static bool poll_mspm0(target_s *const target, const int argc, const char **const argv);
+static bool poll_mspm0(target_s *target, const int argc, const char **argv);
 
 #if MSPM0_CONFIG_FLASH_DUMP_SUPPORT
 static bool mspm0_dump_factory_config(target_s *target, int argc, const char **argv);
@@ -380,6 +380,8 @@ static bool mspm0_mass_erase(target_s *target, platform_timeout_s *print_progess
 	return success;
 }
 
+#if CONFIG_BMDA == 1
+
 #define DEBUGSS_BASE			0x400C7000U
 #define DEBUGSS_TXD				(DEBUGSS_BASE + 0x1100U)
 #define DEBUGSS_TXCTL			(DEBUGSS_BASE + 0x1104U)
@@ -409,24 +411,21 @@ static bool mspm0_mass_erase(target_s *target, platform_timeout_s *print_progess
 // 	}
 // }
 
-#define TI_SECAP_IDR 0x002e0000U
-#define TI_SEC_AP_TXD			ADIV5_AP_REG(0x0u)
-#define TI_SEC_AP_TXCTL			ADIV5_AP_REG(0x4u)
-#define TI_SEC_AP_RXD			ADIV5_AP_REG(0x8u)
-#define TI_SEC_AP_RXCTL			ADIV5_AP_REG(0xcu)
-
-static bool poll_mspm0(target_s *const target, const int argc, const char **const argv);
+#define TI_SEC_AP_IDR   0x002e0000U
+#define TI_SEC_AP_TXD   ADIV5_AP_REG(0x0u)
+#define TI_SEC_AP_TXCTL ADIV5_AP_REG(0x4u)
+#define TI_SEC_AP_RXD   ADIV5_AP_REG(0x8u)
+#define TI_SEC_AP_RXCTL ADIV5_AP_REG(0xcu)
 
 static command_s mspm0_sec_ap_cmds_list[] = {
 	{"poll", poll_mspm0, "Poll DEBUGSS channel. [-s [IP]] [-p port]"},
 	{NULL, NULL, NULL},
 };
 
-
 static void mspm0_sec_ap_free(void *priv);
 bool mspm0_sec_ap_probe(adiv5_access_port_s *ap)
 {
-	if (ap->idr != TI_SECAP_IDR)
+	if (ap->idr != TI_SEC_AP_IDR)
 		return false;
 
 	target_s *target = target_new();
@@ -441,7 +440,7 @@ bool mspm0_sec_ap_probe(adiv5_access_port_s *ap)
 	target->regs_size = 0;
 	target->mass_erase = NULL;
 
-	debug_info("SEC-AP: idr %08x apsel %d class %d type %d\n", ap->idr, ap->apsel,
+	DEBUG_INFO("SEC-AP: idr %08x apsel %d class %d type %d\n", ap->idr, ap->apsel,
 		ADIV5_AP_IDR_CLASS(ap->idr), ADIV5_AP_IDR_TYPE(ap->idr) );
 
 	// for (unsigned i=0;i<0x10; i += 4) {
@@ -596,3 +595,5 @@ static bool poll_mspm0(target_s *const cur_target, const int argc, const char **
 	mspm0_listen_mailbox(ap, io);
 	return true;
 }
+
+#endif // CONFIG_BMDA

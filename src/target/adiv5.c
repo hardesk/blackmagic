@@ -517,8 +517,9 @@ void adiv5_dp_init(adiv5_debug_port_s *const dp)
 		nrf54l_ctrl_ap_probe(ap);
 		efm32_aap_probe(ap);
 		lpc55_dmap_probe(ap);
-		bool mspm0_sec_ap_probe(adiv5_access_port_s *ap);
+#if CONFIG_BMDA == 1
 		if (mspm0_sec_ap_probe(ap)) continue;
+#endif
 
 		if (ADIV5_AP_IDR_CLASS(ap->idr) == ADIV5_AP_IDR_CLASS_MEM) {
 			/* Try to prepare the AP if it seems to be a AHB3 MEM-AP */
