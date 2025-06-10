@@ -418,7 +418,7 @@ static bool mspm0_mass_erase(target_s *target, platform_timeout_s *print_progess
 #define TI_SEC_AP_RXCTL ADIV5_AP_REG(0xcu)
 
 static command_s mspm0_sec_ap_cmds_list[] = {
-	{"poll", poll_mspm0, "Poll DEBUGSS channel. [-s [IP]] [-p port]"},
+	{"poll", poll_mspm0, "Poll DEBUGSS channel. [-s [IP]] [-p port] [-d filename]"},
 	{NULL, NULL, NULL},
 };
 
@@ -459,25 +459,25 @@ static void mspm0_sec_ap_free(void *priv)
 }
 
 static struct platform_timeout mspm0_poll_timeout = {0};
-static char const s_progress[] = "-/|\\";
-static uint8_t s_progress_n = 0;
+// static char const s_progress[] = "-/|\\";
+// static uint8_t s_progress_n = 0;
 
 #include "mspm0_socket_io.c"
 
-static void mspm0_listen_mailbox(adiv5_access_port_s *ap, struct mspm0_io_device* io)
+static void mspm0_listen_mailbox(adiv5_access_port_s *ap, struct mspm0_io_device* io, struct mspm0_io_device* dump_io)
 {
 	platform_timeout_set(&mspm0_poll_timeout, 500);
 
-	bool progress_printed = false;
+	// bool progress_printed = false;
 	unsigned recvd = 0, recv_len = 0;
 	char buffer[256+1];
 	size_t recv_max = sizeof(buffer)-1-4;
 	unsigned state = 0; // 0 - wait, 1 - recv
 	uint32_t rxctl, rxd;
-	bool didprint;
+	// bool didprint;
 	int sent;
 	while(1) {
-		didprint = false;
+		// didprint = false;
 
 		// TX data (debug probe to target device)
 		// RX data (target device to debug probe)
@@ -490,7 +490,7 @@ static void mspm0_listen_mailbox(adiv5_access_port_s *ap, struct mspm0_io_device
 			if (expired) {
 				platform_timeout_set(&mspm0_poll_timeout, 500);
 				// printf("%s%c", progress_printed ? "\r" : "", s_progress[s_progress_n++ % (sizeof s_progress - 1)]);
-				progress_printed = didprint = true;
+				// progress_printed = didprint = true;
 				// char const* ttb = "--> timeout expire!\r\n";
 				// if (conn_result == k_start_ok && (sent = io->send(io, ttb, strlen(ttb))) >= 0) {
 				// }
@@ -511,10 +511,12 @@ static void mspm0_listen_mailbox(adiv5_access_port_s *ap, struct mspm0_io_device
 				break;
 			case 1: // reading
 				if ((rxctl = adiv5_ap_read(ap, TI_SEC_AP_RXCTL)) & 1) {
+					recv_len = (rxctl & 0x7fu) >> 1;
 read_data:
 					rxd = adiv5_ap_read(ap, TI_SEC_AP_RXD);
 					// debug_info("RXCTL: %08x RXD: %08x\n", rxctl, rxd);
 					unsigned recvd_now = MIN(4, recv_len);
+					if (dump_io) dump_io->send(dump_io, (const char*)&rxd, recvd_now);
 					recv_len -= recvd_now;
 					if (recvd < recv_max) {
 						memcpy(buffer + recvd, &rxd, recvd_now);
@@ -537,7 +539,7 @@ read_data:
 
 		platform_timeout_set(&mspm0_poll_timeout, 500);
 
-		if (didprint) didprint = false, fflush(stdout);
+		// if (didprint) didprint = false, fflush(stdout);
 
 		usleep(10000u);
 	}
@@ -558,14 +560,23 @@ static bool poll_mspm0(target_s *const cur_target, const int argc, const char **
 	};
 
 	struct mspm0_io_file file_out = {
-		.fd = STDOUT_FILENO,
 		.io = {
 			.connect = mspm0_io_file_connect,
 			.send = mspm0_io_file_write
-		}
+		},
+		.fd = STDOUT_FILENO
+	};
+
+	struct mspm0_io_file dump_file_out = {
+		.io = {
+			.connect = mspm0_io_file_connect,
+			.send = mspm0_io_file_write
+		},
+		.fd = STDIN_FILENO
 	};
 
 	struct mspm0_io_device* io = &file_out.io;
+	struct mspm0_io_device* dump_io = NULL;
 	for (int i=1; i<argc; ) {
 		char const* s = argv[i++];
 		 if (s[0] == '-') {
@@ -584,15 +595,27 @@ static bool poll_mspm0(target_s *const cur_target, const int argc, const char **
 				}
 				break;
 			case 'p':
-				if (a) socket_out.port = atoi(a);
+				if (a) ++i, socket_out.port = atoi(a);
 				io = &socket_out.io;
 				break;
+			case 'd':
+				if (a && strlen(a)) {
+					if ((dump_file_out.fd = open(a, O_WRONLY | O_CREAT | O_TRUNC, 0644)) == -1) {
+						DEBUG_WARN("Failed to open %s for dumping mspm0 mailbox data, error %d\n", a, errno);
+					} else {
+						DEBUG_INFO("Dumping mailbox stream to %s\n", a);
+						dump_io = &dump_file_out.io;
+					}
+				}
 			}
 		}
 	}
 
 	adiv5_access_port_s* ap = (adiv5_access_port_s*)cur_target->priv;
-	mspm0_listen_mailbox(ap, io);
+	mspm0_listen_mailbox(ap, io, dump_io);
+	if (dump_file_out.fd != STDIN_FILENO)
+		if (close(dump_file_out.fd) == -1)
+			DEBUG_WARN("Failed to close dump file, error %d\n", errno);
 	return true;
 }
 
