@@ -24,6 +24,9 @@
 #include "jep106.h"
 #include "cortexm.h"
 
+#if CONFIG_BMDA == 1
+#include <unistd.h>
+#endif
 
 #define MSPM0_CONFIG_FLASH_DUMP_SUPPORT (CONFIG_BMDA == 1 || ENABLE_DEBUG == 1)
 
@@ -87,6 +90,9 @@
 static bool mspm0_flash_erase(target_flash_s *flash, target_addr_t addr, size_t length);
 static bool mspm0_flash_write(target_flash_s *flash, target_addr_t dest, const void *src, size_t length);
 static bool mspm0_mass_erase(target_s *target, platform_timeout_s *print_progess);
+#if CONFIG_BMDA == 1
+static bool poll_mspm0(target_s *const cur_target, const int argc, const char **const argv);
+#endif
 
 typedef struct mspm0_flash {
 	target_flash_s target_flash;
@@ -425,3 +431,234 @@ static bool mspm0_mass_erase(target_s *const target, platform_timeout_s *const p
 
 	return success;
 }
+
+#if CONFIG_BMDA == 1
+
+#define DEBUGSS_BASE         0x400C7000U
+#define DEBUGSS_TXD          (DEBUGSS_BASE + 0x1100U)
+#define DEBUGSS_TXCTL        (DEBUGSS_BASE + 0x1104U)
+#define DEBUGSS_RXD          (DEBUGSS_BASE + 0x1108U)
+#define DEBUGSS_RXCTL        (DEBUGSS_BASE + 0x110cU)
+#define DEBUGSS_SPECIAL_AUTH (DEBUGSS_BASE + 0x1200U)
+#define DEBUGSS_APP_AUTH     (DEBUGSS_BASE + 0x1210U)
+
+#include "timing.h"
+#include "mspm0_io.c"
+
+// struct platform_timeout mspm0_poll_timeout = {0};
+// static bool poll_mspm0(target_s *const cur_target, const int argc, const char **const argv)
+// {
+// 	while(1) {
+// 		// TX data (debug probe to target device)
+// 		// RX data (target device to debug probe)
+// 		if (platform_timeout_is_expired(&mspm0_poll_timeout)) {
+// 			platform_timeout_set(&mspm0_poll_timeout, 1000);
+// 			debug_info("%s\n", cur_target ? "'" : "*");
+// 		}
+
+// 		if (target_mem32_read32(cur_target, DEBUGSS_RXCTL) & 1) {
+// 			uint32_t data = target_mem32_read32(cur_target, DEBUGSS_RXD);
+// 			debug_info("RXD: %c (%u)\n", (char)data, data);
+// 		}
+// 		sleep(1);
+// 	}
+// }
+
+#define TI_SEC_AP_IDR   0x002e0000U
+#define TI_SEC_AP_TXD   ADIV5_AP_REG(0x0u)
+#define TI_SEC_AP_TXCTL ADIV5_AP_REG(0x4u)
+#define TI_SEC_AP_RXD   ADIV5_AP_REG(0x8u)
+#define TI_SEC_AP_RXCTL ADIV5_AP_REG(0xcu)
+
+static command_s mspm0_sec_ap_cmds_list[] = {
+	{"poll", poll_mspm0, "Poll DEBUGSS channel. [-s [IP]] [-p port] [-d filename]"},
+	{NULL, NULL, NULL},
+};
+
+static void mspm0_sec_ap_free(void *priv);
+
+bool mspm0_sec_ap_probe(adiv5_access_port_s *ap)
+{
+	if (ap->idr != TI_SEC_AP_IDR)
+		return false;
+
+	target_s *target = target_new();
+	if (!target)
+		return false;
+
+	adiv5_ap_ref(ap);
+	target->priv = ap;
+	target->priv_free = mspm0_sec_ap_free;
+
+	target->driver = "MSPM0 Debug Mailbox";
+	target->regs_size = 0;
+	target->mass_erase = NULL;
+
+	DEBUG_INFO("SEC-AP: idr %08x apsel %d class %d type %d\n", ap->idr, ap->apsel, ADIV5_AP_IDR_CLASS(ap->idr),
+		ADIV5_AP_IDR_TYPE(ap->idr));
+
+	// for (unsigned i=0;i<0x10; i += 4) {
+	// 	uint32_t r = adiv5_ap_read(ap, 0x100 | i );
+	// 	debug_info("SEC-AP: read @0x%02x: %08x\n", i, r);
+	// }
+
+	target_add_commands(target, mspm0_sec_ap_cmds_list, "MSPM0 Mailbox");
+
+	return true;
+}
+
+static void mspm0_sec_ap_free(void *priv)
+{
+	adiv5_ap_unref(priv);
+}
+
+static struct platform_timeout mspm0_poll_timeout = {0};
+// static char const s_progress[] = "-/|\\";
+// static uint8_t s_progress_n = 0;
+
+static void mspm0_listen_mailbox(adiv5_access_port_s *ap, struct mspm0_io_device *io, struct mspm0_io_device *dump_io)
+{
+	platform_timeout_set(&mspm0_poll_timeout, 500);
+
+	// bool progress_printed = false;
+	unsigned recvd = 0, recv_len = 0;
+	char buffer[256 + 1];
+	size_t recv_max = sizeof(buffer) - 1 - 4;
+	unsigned state = 0; // 0 - wait, 1 - recv
+	uint32_t rxctl, rxd;
+	// bool didprint;
+	int sent;
+	while (1) {
+		// didprint = false;
+
+		// TX data (debug probe to target device)
+		// RX data (target device to debug probe)
+		bool expired = platform_timeout_is_expired(&mspm0_poll_timeout);
+		if (expired || io->state != k_conn_connected) {
+			// attempt to open output if not open
+			if (io->state != k_conn_connected)
+				if (io->connect(io) == k_start_wait)
+					expired = true;
+			if (expired) {
+				platform_timeout_set(&mspm0_poll_timeout, 500);
+				// printf("%s%c", progress_printed ? "\r" : "", s_progress[s_progress_n++ % (sizeof s_progress - 1)]);
+				// progress_printed = didprint = true;
+				// char const* ttb = "--> timeout expire!\r\n";
+				// if (conn_result == k_start_ok && (sent = io->send(io, ttb, strlen(ttb))) >= 0) {
+				// }
+			}
+		}
+
+		do {
+			switch (state) {
+			default:
+			case 0: // waiting
+				if ((rxctl = adiv5_ap_read(ap, TI_SEC_AP_RXCTL)) & 1) {
+					state = 1;
+					recvd = 0;
+					recv_len = (rxctl & 0x7fu) >> 1;
+					platform_timeout_set(&mspm0_poll_timeout, 500);
+					goto read_data;
+				}
+				break;
+			case 1: // reading
+				if ((rxctl = adiv5_ap_read(ap, TI_SEC_AP_RXCTL)) & 1) {
+					recv_len = (rxctl & 0x7fu) >> 1;
+				read_data:
+					rxd = adiv5_ap_read(ap, TI_SEC_AP_RXD);
+					// debug_info("RXCTL: %08x RXD: %08x\n", rxctl, rxd);
+					unsigned recvd_now = MIN(4, recv_len);
+					if (dump_io)
+						dump_io->send(dump_io, (const char *)&rxd, recvd_now);
+					recv_len -= recvd_now;
+					if (recvd < recv_max) {
+						memcpy(buffer + recvd, &rxd, recvd_now);
+						recvd += recvd_now;
+					}
+
+					/* flush the buffer if no data was received or if the buffer is full */
+					if (!recv_len || recvd >= recv_max) {
+						// if (progress_printed) progress_printed = false, printf("%s", "  \r");
+						// didprint = true;
+						if (io->state == k_conn_connected && (sent = io->send(io, buffer, recvd)) >= 0) {
+							if ((recvd -= (unsigned)sent) != 0)
+								memmove(buffer, buffer + sent, recvd);
+						}
+						if (!recv_len)
+							state = 0; // done with the message
+					}
+				}
+				break;
+			} // switch
+		} while (rxctl & 1);
+
+		platform_timeout_set(&mspm0_poll_timeout, 500);
+
+		// if (didprint) didprint = false, fflush(stdout);
+
+		usleep(25000u);
+	}
+}
+
+static bool poll_mspm0(target_s *const cur_target, const int argc, const char **const argv)
+{
+	char host[128] = "127.0.0.1";
+	struct mspm0_io_socket socket_out = {
+		.io = {.connect = mspm0_io_socket_connect, .send = mspm0_io_socket_send},
+		.host = host,
+		.port = 35730,
+		.state = k_conn_closed,
+	};
+
+	struct mspm0_io_file file_out = {
+		.io = {.connect = mspm0_io_file_connect, .send = mspm0_io_file_write}, .fd = STDOUT_FILENO};
+
+	struct mspm0_io_file dump_file_out = {
+		.io = {.connect = mspm0_io_file_connect, .send = mspm0_io_file_write}, .fd = STDIN_FILENO};
+
+	struct mspm0_io_device *io = &file_out.io;
+	struct mspm0_io_device *dump_io = NULL;
+	for (int i = 1; i < argc;) {
+		char const *s = argv[i++];
+		if (s[0] == '-') {
+			char const *a = NULL;
+			if (strlen(s) > 2)
+				a = s + 2;
+			else if (i < argc && argv[i][0] != '-') /* next token must be argument if not prefixed with a dash */
+				a = argv[i++];
+
+			switch (s[1]) {
+			case 's':
+				io = &socket_out.io;
+				if (a) {
+					strncpy(host, a, sizeof(host) - 1);
+					host[sizeof host - 1] = 0;
+				}
+				break;
+			case 'p':
+				if (a)
+					++i, socket_out.port = atoi(a);
+				io = &socket_out.io;
+				break;
+			case 'd':
+				if (a && strlen(a)) {
+					if ((dump_file_out.fd = open(a, O_WRONLY | O_CREAT | O_TRUNC, 0644)) == -1) {
+						DEBUG_WARN("Failed to open %s for dumping mspm0 mailbox data, error %d\n", a, errno);
+					} else {
+						DEBUG_INFO("Dumping mailbox stream to %s\n", a);
+						dump_io = &dump_file_out.io;
+					}
+				}
+			}
+		}
+	}
+
+	adiv5_access_port_s *ap = (adiv5_access_port_s *)cur_target->priv;
+	mspm0_listen_mailbox(ap, io, dump_io);
+	if (dump_file_out.fd != STDIN_FILENO)
+		if (close(dump_file_out.fd) == -1)
+			DEBUG_WARN("Failed to close dump file, error %d\n", errno);
+	return true;
+}
+
+#endif // CONFIG_BMDA
