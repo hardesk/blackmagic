@@ -53,6 +53,7 @@ bool lpc55_dmap_probe(adiv5_access_port_s *ap);
 bool nrf51_ctrl_ap_probe(adiv5_access_port_s *ap);
 bool nrf54l_ctrl_ap_probe(adiv5_access_port_s *ap);
 bool rp2040_rescue_probe(adiv5_access_port_s *ap);
+bool mspm0_sec_ap_probe(adiv5_access_port_s *ap);
 
 bool at32f40x_probe(target_s *target); // STM32 clones from Artery
 bool apollo_3_probe(target_s *target);
