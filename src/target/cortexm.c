@@ -993,7 +993,8 @@ static int cortexm_fault_unwind(target_s *target)
 	return 0;
 }
 
-bool cortexm_run_stub(target_s *target, uint32_t loadaddr, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3, uint32_t sp)
+bool cortexm_run_stub(
+	target_s *target, uint32_t loadaddr, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3, uint32_t sp)
 {
 	uint32_t regs[CORTEXM_MAX_REG_COUNT] = {0};
 

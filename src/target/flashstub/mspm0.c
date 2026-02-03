@@ -23,29 +23,27 @@
 #define MSPM0_FLASH_MAIN      0x00000000U
 #define MSPM0_FLASH_SECTOR_SZ 1024U
 
-#define MSPM0_FLASHCTL_BASE              0x400cd000U
-#define MSPM0_FLASHCTL_CMDEXEC           *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1100U))
-#define MSPM0_FLASHCTL_CMDTYPE           *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1104U))
-#define MSPM0_FLASHCTL_CMDCTL            *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1108U))
-#define MSPM0_FLASHCTL_CMDADDR           *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1120U))
-#define MSPM0_FLASHCTL_BYTEN             *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1124U))
-#define MSPM0_FLASHCTL_STATCMD           *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x13d0U))
-#define MSPM0_FLASHCTL_CMDDATA0          *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1130U))
-#define MSPM0_FLASHCTL_CMDDATA1          *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1134U))
-#define MSPM0_FLASHCTL_CMDWEPROTA        *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x11d0U))
-#define MSPM0_FLASHCTL_CMDWEPROTB        *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x11d4U))
-#define MSPM0_FLASHCTL_CMDWEPROTC        *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x11d8U))
-#define MSPM0_FLASHCTL_CMDTYPE_PROG      1U
-#define MSPM0_FLASHCTL_CMDTYPE_SZ_1WORD  (0U << 4U)
-#define MSPM0_FLASHCTL_CMDEXEC_EXEC      1U
-#define MSPM0_FLASHCTL_STATCMD_DONE      0x01U
-#define MSPM0_FLASHCTL_STATCMD_CMDPASS   0x02U
+#define MSPM0_FLASHCTL_BASE             0x400cd000U
+#define MSPM0_FLASHCTL_CMDEXEC          *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1100U))
+#define MSPM0_FLASHCTL_CMDTYPE          *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1104U))
+#define MSPM0_FLASHCTL_CMDCTL           *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1108U))
+#define MSPM0_FLASHCTL_CMDADDR          *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1120U))
+#define MSPM0_FLASHCTL_BYTEN            *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1124U))
+#define MSPM0_FLASHCTL_STATCMD          *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x13d0U))
+#define MSPM0_FLASHCTL_CMDDATA0         *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1130U))
+#define MSPM0_FLASHCTL_CMDDATA1         *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x1134U))
+#define MSPM0_FLASHCTL_CMDWEPROTA       *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x11d0U))
+#define MSPM0_FLASHCTL_CMDWEPROTB       *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x11d4U))
+#define MSPM0_FLASHCTL_CMDWEPROTC       *((volatile uint32_t *)(MSPM0_FLASHCTL_BASE + 0x11d8U))
+#define MSPM0_FLASHCTL_CMDTYPE_PROG     1U
+#define MSPM0_FLASHCTL_CMDTYPE_SZ_1WORD (0U << 4U)
+#define MSPM0_FLASHCTL_CMDEXEC_EXEC     1U
+#define MSPM0_FLASHCTL_STATCMD_DONE     0x01U
+#define MSPM0_FLASHCTL_STATCMD_CMDPASS  0x02U
 
-void
-mspm0_flash_write_stub(const uint32_t *const dest, const uint32_t *const src, const uint32_t size)
+void mspm0_flash_write_stub(const uint32_t *const dest, const uint32_t *const src, const uint32_t size)
 {
-	for (uint32_t i = 0U; i < size/4; i += 2) {
-
+	for (uint32_t i = 0U; i < size / 4; i += 2) {
 		uint32_t addr = (uint32_t)(dest + i);
 		uint32_t sector = (addr - MSPM0_FLASH_MAIN) / MSPM0_FLASH_SECTOR_SZ;
 
