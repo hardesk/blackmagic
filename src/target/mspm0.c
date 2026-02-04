@@ -90,7 +90,7 @@ static bool mspm0_mass_erase(target_s *target, platform_timeout_s *print_progess
 typedef struct mspm0_flash {
 	target_flash_s target_flash;
 	uint32_t banks;
-	uint32_t ram_size; /* 0 if stub flashing is disabled */
+	uint32_t ram_size; /* 0 if not enough ram to use stub flashing */
 } mspm0_flash_s;
 
 static const uint16_t mspm0_flash_write_stub[] = {
@@ -110,56 +110,57 @@ static command_s mspm0_cmds_list[] = {
 #endif
 
 #if MSPM0_CONFIG_FLASH_DUMP_SUPPORT
-
-#define PACKED_ENTRY(offset, len, ...) len, (uint8_t)((offset) >> 2), __VA_ARGS__,
+#define MSPM0_ASSERT_PACKED_OFFSET(x) sizeof(char[((x) >> 2) >= 0x100 || (((x) & 0x3U) != 0) ? -1 : 1])
+#define MSPM0_PACKED_ENTRY(offset, len, ...) \
+	len, (uint8_t)((offset) >> (2 * MSPM0_ASSERT_PACKED_OFFSET(offset))), __VA_ARGS__,
 
 /* clang-format off */
-static char const mspm0_factory_regs[] = {
-	PACKED_ENTRY(0x00U, 1U, 'T','R','A','C','E','I','D')
-	PACKED_ENTRY(0x04U, 1U, 'D','E','V','I','C','E','I','D')
-	PACKED_ENTRY(0x08U, 1U, 'U','S','E','R','I','D')
-	PACKED_ENTRY(0x0cU, 1U, 'B','S','L','P','I','N','_','U','A','R','T')
-	PACKED_ENTRY(0x10U, 1U, 'B','S','L','P','I','N','_','I','2','C')
-	PACKED_ENTRY(0x14U, 1U, 'B','S','L','P','I','N','_','I','N','V','O','K','E')
-	PACKED_ENTRY(0x18U, 1U, 'S','R','A','M','F','L','A','S','H')
-	PACKED_ENTRY(0x3cU, 1U, 'T','E','M','P','_','S','E','N','S','E','0')
-	PACKED_ENTRY(0x7cU, 1U, 'B','O','O','T','C','R','C')
+static uint8_t const mspm0_factory_regs[] = {
+	MSPM0_PACKED_ENTRY(0x00U, 1U, 'T','R','A','C','E','I','D')
+	MSPM0_PACKED_ENTRY(0x04U, 1U, 'D','E','V','I','C','E','I','D')
+	MSPM0_PACKED_ENTRY(0x08U, 1U, 'U','S','E','R','I','D')
+	MSPM0_PACKED_ENTRY(0x0cU, 1U, 'B','S','L','P','I','N','_','U','A','R','T')
+	MSPM0_PACKED_ENTRY(0x10U, 1U, 'B','S','L','P','I','N','_','I','2','C')
+	MSPM0_PACKED_ENTRY(0x14U, 1U, 'B','S','L','P','I','N','_','I','N','V','O','K','E')
+	MSPM0_PACKED_ENTRY(0x18U, 1U, 'S','R','A','M','F','L','A','S','H')
+	MSPM0_PACKED_ENTRY(0x3cU, 1U, 'T','E','M','P','_','S','E','N','S','E','0')
+	MSPM0_PACKED_ENTRY(0x7cU, 1U, 'B','O','O','T','C','R','C')
 	0U
 };
 
-static char const mspm0_bcr_regs[] = {
-	PACKED_ENTRY(0x00U, 1U, 'B','C','R','C','O','N','F','I','G','I','D')
-	PACKED_ENTRY(0x04U, 1U, 'B','O','O','T','C','F','G','0')
-	PACKED_ENTRY(0x08U, 1U, 'B','O','O','T','C','F','G','1')
-	PACKED_ENTRY(0x0cU, 4U, 'P','W','D','D','E','B','U','G','L','O','C','K')
-	PACKED_ENTRY(0x1cU, 4U, 'B','O','O','T','C','F','G','2')
-	PACKED_ENTRY(0x20U, 1U, 'B','O','O','T','C','F','G','3')
-	PACKED_ENTRY(0x24U, 4U, 'P','W','D','M','A','S','S','E','R','A','S','E')
-	PACKED_ENTRY(0x34U, 4U, 'P','W','D','F','A','C','T','O','R','Y','R','E','S','E','T')
-	PACKED_ENTRY(0x44U, 1U, 'F','L','A','S','H','S','W','P','0')
-	PACKED_ENTRY(0x48U, 1U, 'F','L','A','S','H','S','W','P','1')
-	PACKED_ENTRY(0x4cU, 1U, 'B','O','O','T','C','F','G','4')
-	PACKED_ENTRY(0x50U, 1U, 'A','P','P','C','R','C','S','T','A','R','T')
-	PACKED_ENTRY(0x54U, 1U, 'A','P','P','C','R','C','L','E','N','G','T','H')
-	PACKED_ENTRY(0x58U, 1U, 'A','P','P','C','R','C')
-	PACKED_ENTRY(0x5cU, 1U, 'B','O','O','T','C','R','C')
-	PACKED_ENTRY(0x100U, 1U, 'B','S','L','C','O','N','F','I','G','I','D')
-	PACKED_ENTRY(0x104U, 1U, 'B','S','L','P','I','N','C','F','G','0')
-	PACKED_ENTRY(0x108U, 1U, 'B','S','L','P','I','N','C','F','G','1')
-	PACKED_ENTRY(0x10cU, 1U, 'B','S','L','C','O','N','F','I','G','0')
-	PACKED_ENTRY(0x110U, 8U, 'B','S','L','P','W')
-	PACKED_ENTRY(0x130U, 1U, 'B','S','L','P','L','U','G','I','N','C','F','G')
-	PACKED_ENTRY(0x134U, 4U, 'B','S','L','P','L','U','G','I','N','H','O','O','K')
-	PACKED_ENTRY(0x144U, 1U, 'P','A','T','C','H','H','O','O','K','I','D')
-	PACKED_ENTRY(0x148U, 1U, 'S','B','L','A','D','D','R','E','S','S')
-	PACKED_ENTRY(0x14cU, 1U, 'B','S','L','A','P','P','V','E','R')
-	PACKED_ENTRY(0x150U, 1U, 'B','S','L','C','O','N','F','I','G','1')
-	PACKED_ENTRY(0x154U, 1U, 'B','S','L','C','R','C')
+static uint8_t const mspm0_bcr_regs[] = {
+	MSPM0_PACKED_ENTRY(0x00U, 1U, 'B','C','R','C','O','N','F','I','G','I','D')
+	MSPM0_PACKED_ENTRY(0x04U, 1U, 'B','O','O','T','C','F','G','0')
+	MSPM0_PACKED_ENTRY(0x08U, 1U, 'B','O','O','T','C','F','G','1')
+	MSPM0_PACKED_ENTRY(0x0cU, 4U, 'P','W','D','D','E','B','U','G','L','O','C','K')
+	MSPM0_PACKED_ENTRY(0x1cU, 4U, 'B','O','O','T','C','F','G','2')
+	MSPM0_PACKED_ENTRY(0x20U, 1U, 'B','O','O','T','C','F','G','3')
+	MSPM0_PACKED_ENTRY(0x24U, 4U, 'P','W','D','M','A','S','S','E','R','A','S','E')
+	MSPM0_PACKED_ENTRY(0x34U, 4U, 'P','W','D','F','A','C','T','O','R','Y','R','E','S','E','T')
+	MSPM0_PACKED_ENTRY(0x44U, 1U, 'F','L','A','S','H','S','W','P','0')
+	MSPM0_PACKED_ENTRY(0x48U, 1U, 'F','L','A','S','H','S','W','P','1')
+	MSPM0_PACKED_ENTRY(0x4cU, 1U, 'B','O','O','T','C','F','G','4')
+	MSPM0_PACKED_ENTRY(0x50U, 1U, 'A','P','P','C','R','C','S','T','A','R','T')
+	MSPM0_PACKED_ENTRY(0x54U, 1U, 'A','P','P','C','R','C','L','E','N','G','T','H')
+	MSPM0_PACKED_ENTRY(0x58U, 1U, 'A','P','P','C','R','C')
+	MSPM0_PACKED_ENTRY(0x5cU, 1U, 'B','O','O','T','C','R','C')
+	MSPM0_PACKED_ENTRY(0x100U, 1U, 'B','S','L','C','O','N','F','I','G','I','D')
+	MSPM0_PACKED_ENTRY(0x104U, 1U, 'B','S','L','P','I','N','C','F','G','0')
+	MSPM0_PACKED_ENTRY(0x108U, 1U, 'B','S','L','P','I','N','C','F','G','1')
+	MSPM0_PACKED_ENTRY(0x10cU, 1U, 'B','S','L','C','O','N','F','I','G','0')
+	MSPM0_PACKED_ENTRY(0x110U, 8U, 'B','S','L','P','W')
+	MSPM0_PACKED_ENTRY(0x130U, 1U, 'B','S','L','P','L','U','G','I','N','C','F','G')
+	MSPM0_PACKED_ENTRY(0x134U, 4U, 'B','S','L','P','L','U','G','I','N','H','O','O','K')
+	MSPM0_PACKED_ENTRY(0x144U, 1U, 'P','A','T','C','H','H','O','O','K','I','D')
+	MSPM0_PACKED_ENTRY(0x148U, 1U, 'S','B','L','A','D','D','R','E','S','S')
+	MSPM0_PACKED_ENTRY(0x14cU, 1U, 'B','S','L','A','P','P','V','E','R')
+	MSPM0_PACKED_ENTRY(0x150U, 1U, 'B','S','L','C','O','N','F','I','G','1')
+	MSPM0_PACKED_ENTRY(0x154U, 1U, 'B','S','L','C','R','C')
 	0U
 };
 /* clang-format on */
 
-static void mspm0_dump_regs_packed(target_s *const target, const char *regs, const uint32_t base)
+static void mspm0_dump_regs(target_s *const target, uint8_t const *regs, const uint32_t base)
 {
 	while (*regs != 0) {
 		uint32_t words = *regs++;
@@ -167,7 +168,7 @@ static void mspm0_dump_regs_packed(target_s *const target, const char *regs, con
 		char const *reg_name = (char const *)regs;
 		while (*regs >= ' ')
 			regs++;
-		uint32_t name_len = regs - reg_name;
+		int name_len = (char const *)regs - reg_name;
 		tc_printf(target, "%15.*s: ", name_len, reg_name);
 		for (size_t i = 0; i < words; ++i) {
 			uint32_t value = target_mem32_read32(target, base + reg_offset + (uint32_t)(i * 4U));
@@ -176,7 +177,6 @@ static void mspm0_dump_regs_packed(target_s *const target, const char *regs, con
 	}
 }
 
-#if 0
 static bool mspm0_dump_factory_config(target_s *const target, const int argc, const char **const argv)
 {
 	(void)argc;
@@ -192,24 +192,6 @@ static bool mspm0_dump_bcr_config(target_s *const target, const int argc, const 
 	mspm0_dump_regs(target, mspm0_bcr_regs, MSPM0_FLASH_NONMAIN);
 	return true;
 }
-#else
-static bool mspm0_dump_factory_config(target_s *const target, const int argc, const char **const argv)
-{
-	(void)argc;
-	(void)argv;
-	mspm0_dump_regs_packed(target, mspm0_factory_regs, MSPM0_FLASH_FACTORY);
-	return true;
-}
-
-static bool mspm0_dump_bcr_config(target_s *const target, const int argc, const char **const argv)
-{
-	(void)argc;
-	(void)argv;
-	mspm0_dump_regs_packed(target, mspm0_bcr_regs, MSPM0_FLASH_NONMAIN);
-	return true;
-}
-#endif
-
 #endif
 
 static uint16_t g_mspm0_partnums[] = {
@@ -219,7 +201,7 @@ static uint16_t g_mspm0_partnums[] = {
 	0xbb82U, /* MSPM0L: 1105 1106 1304 1305 1305 1344 1345 1346 1345-Q1 1346-Q1 */
 	0xbb9fU, /* MSPM0L: 1227 1228 2227 2228 1227-Q1 1228-Q1 2227-Q1 2228-Q1 */
 	0xbbb4U, /* MSPM0L: 1116 1117 1116-Q1 1117-Q1 */
-	0xbbc7U, /* MSPM0L: 2116 2117 1126 1127 */
+	0xbbc7U, /* MSPM0L: 1126 1127 2116 2117 */
 	0x0bbaU, /* MSPM0H: 3215 3216 */
 	0xbb88U, /* MSPM0G: 1105 1106 1107 1505 1506 1507 3105 3106 3107 3505 3506 3507 3105-Q1 3106-Q1 3107-Q1 3505-Q1 3506-Q1 3507-Q1 */
 	0xbba9U, /* MSPM0G: 1518 1519 3518 3519 3518-Q1 3519-Q1 3529-Q1 */
@@ -234,6 +216,7 @@ static void mspm0_add_flash(
 		return;
 	}
 
+	/* Accounting for available ram, figure out the writesize when flashing */
 	uint32_t write_size = MSPM0_FLASH_WRITE_CHUNK_SZ;
 	uint32_t stub_plus = ALIGN(sizeof mspm0_flash_write_stub, 4) + MSPM0_FLASH_STUB_STACK_SIZE;
 	if (sram_size >= stub_plus) {
@@ -309,7 +292,7 @@ static uint32_t mspm0_flash_wait_done(target_s *const target)
 		status = target_mem32_read32(target, MSPM0_FLASHCTL_STATCMD);
 		if (platform_timeout_is_expired(&timeout))
 			return 0U;
-	};
+	}
 
 	return status;
 }
@@ -370,48 +353,17 @@ static bool mspm0_flash_write(
 {
 	target_s *const target = target_flash->t;
 	mspm0_flash_s *flash = (mspm0_flash_s *)target_flash;
+	if (flash->ram_size == 0)
+		return false;
 
 	DEBUG_TARGET(
 		"%s: Writing flash addr %08" PRIx32 " length %08" PRIx32 "\n", __func__, (uint32_t)dest, (uint32_t)length);
 
-	if (flash->ram_size == 0) {
-#if CONFIG_BMDA == 1
-		uint32_t status = 0;
-		target_mem32_write32(target, MSPM0_FLASHCTL_CMDCTL, 0U);
-		target_mem32_write32(target, MSPM0_FLASHCTL_BYTEN, 0xffffffffU);
-		target_mem32_write32(
-			target, MSPM0_FLASHCTL_CMDTYPE, MSPM0_FLASHCTL_CMDTYPE_PROG | MSPM0_FLASHCTL_CMDTYPE_SZ_1WORD);
+	target_mem32_write(target, MSPM0_SRAM_BASE, mspm0_flash_write_stub, sizeof(mspm0_flash_write_stub));
+	target_mem32_write(target, STUB_BUFFER_BASE, src, length);
 
-		for (uint32_t written = 0U; written < length; written += 8) {
-			mspm0_flash_unprotect_sector(target_flash, dest);
-			target_mem32_write32(target, MSPM0_FLASHCTL_CMDADDR, dest + written);
-			target_mem32_write32(target, MSPM0_FLASHCTL_CMDDATA0, read_le4((const uint8_t *)src, written + 0U));
-			target_mem32_write32(target, MSPM0_FLASHCTL_CMDDATA1, read_le4((const uint8_t *)src, written + 4U));
-			target_mem32_write32(target, MSPM0_FLASHCTL_CMDEXEC, MSPM0_FLASHCTL_CMDEXEC_EXEC);
-
-			status = mspm0_flash_wait_done(target);
-			if (!(status & MSPM0_FLASHCTL_STAT_CMDPASS)) {
-				DEBUG_TARGET("%s: Failed to write to flash, status %08" PRIx32 " addr %08" PRIx32 " length %08" PRIx32
-							 "\n",
-					__func__, status, dest, (uint32_t)length);
-				break;
-			}
-		}
-
-		return status & MSPM0_FLASHCTL_STAT_CMDPASS;
-#else
-		return false;
-#endif
-	} else {
-		target_check_error(target);
-		target_mem32_write(target, MSPM0_SRAM_BASE, mspm0_flash_write_stub, sizeof(mspm0_flash_write_stub));
-		target_mem32_write(target, STUB_BUFFER_BASE, src, length);
-		if (target_check_error(target))
-			return false;
-
-		return cortexm_run_stub(
-				   target, MSPM0_SRAM_BASE, dest, STUB_BUFFER_BASE, length, 0, MSPM0_SRAM_BASE + flash->ram_size) == 0;
-	}
+	return cortexm_run_stub(
+		target, MSPM0_SRAM_BASE, dest, STUB_BUFFER_BASE, length, 0, MSPM0_SRAM_BASE + flash->ram_size);
 }
 
 static bool mspm0_mass_erase(target_s *const target, platform_timeout_s *const print_progess)
