@@ -65,8 +65,8 @@ void mspm0_flash_write_stub(const uint32_t *const dest, const uint32_t *const sr
 		while (!(MSPM0_FLASHCTL_STATCMD & MSPM0_FLASHCTL_STATCMD_DONE))
 			continue;
 		if (!(MSPM0_FLASHCTL_STATCMD & MSPM0_FLASHCTL_STATCMD_CMDPASS))
-			stub_exit(1);
+			stub_exit(0);
 	}
 
-	stub_exit(0);
+	stub_exit(1);
 }
